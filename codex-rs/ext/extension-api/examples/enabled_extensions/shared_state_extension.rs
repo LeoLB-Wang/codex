@@ -17,10 +17,11 @@ pub fn install(registry: &mut ExtensionRegistryBuilder<()>) {
 struct StyleContributor;
 
 impl ContextContributor for StyleContributor {
-    fn contribute<'a>(
+    fn contribute_thread_context<'a>(
         &'a self,
         session_store: &'a ExtensionData,
         thread_store: &'a ExtensionData,
+        _step_store: &'a ExtensionData,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<PromptFragment>> + Send + 'a>> {
         Box::pin(async move {
             contribution_counts(session_store).record_style();
@@ -37,10 +38,11 @@ impl ContextContributor for StyleContributor {
 struct UsageContributor;
 
 impl ContextContributor for UsageContributor {
-    fn contribute<'a>(
+    fn contribute_thread_context<'a>(
         &'a self,
         session_store: &'a ExtensionData,
         thread_store: &'a ExtensionData,
+        _step_store: &'a ExtensionData,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<PromptFragment>> + Send + 'a>> {
         Box::pin(async move {
             contribution_counts(session_store).record_usage();

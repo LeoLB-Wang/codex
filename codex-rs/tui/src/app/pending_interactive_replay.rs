@@ -82,7 +82,6 @@ impl PendingInteractiveReplayState {
                 | AppCommand::ResolveElicitation { .. }
                 | AppCommand::RequestPermissionsResponse { .. }
                 | AppCommand::UserInputAnswer { .. }
-                | AppCommand::Shutdown
         )
     }
 
@@ -164,7 +163,6 @@ impl PendingInteractiveReplayState {
                     self.request_user_input_call_ids_by_turn_id.remove(id);
                 }
             }
-            AppCommand::Shutdown => self.clear(),
             _ => {}
         }
     }
@@ -619,7 +617,7 @@ mod tests {
                 reason: None,
                 network_approval_context: None,
                 command: Some("echo hi".to_string()),
-                cwd: Some(test_path_buf("/tmp").abs()),
+                cwd: Some(test_path_buf("/tmp").abs().into()),
                 command_actions: None,
                 additional_permissions: None,
                 proposed_execpolicy_amendment: None,

@@ -175,6 +175,7 @@ async fn run_cmd_result_with_permission_profile_for_cwd(
         capture_policy: ExecCapturePolicy::ShellTool,
         env: create_env_from_core_vars(),
         network: None,
+        network_environment_id: None,
         sandbox_permissions: SandboxPermissions::UseDefault,
         windows_sandbox_level: WindowsSandboxLevel::Disabled,
         windows_sandbox_private_desktop: false,
@@ -432,6 +433,7 @@ async fn assert_network_blocked(cmd: &[&str]) {
         capture_policy: ExecCapturePolicy::ShellTool,
         env: create_env_from_core_vars(),
         network: None,
+        network_environment_id: None,
         sandbox_permissions: SandboxPermissions::UseDefault,
         windows_sandbox_level: WindowsSandboxLevel::Disabled,
         windows_sandbox_private_desktop: false,
@@ -785,6 +787,7 @@ async fn sandbox_blocks_explicit_split_policy_carveouts_under_bwrap() {
                 value: FileSystemSpecialPath::Minimal,
             },
             access: FileSystemAccessMode::Read,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
@@ -792,18 +795,21 @@ async fn sandbox_blocks_explicit_split_policy_carveouts_under_bwrap() {
                     .expect("absolute helper dir"),
             },
             access: FileSystemAccessMode::Read,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
                 path: AbsolutePathBuf::try_from(tmpdir.path()).expect("absolute tempdir"),
             },
             access: FileSystemAccessMode::Write,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
                 path: AbsolutePathBuf::try_from(blocked.as_path()).expect("absolute blocked dir"),
             },
             access: FileSystemAccessMode::Deny,
+            missing_path_behavior: None,
         },
     ]);
     let permission_profile = PermissionProfile::from_runtime_permissions(
@@ -853,6 +859,7 @@ async fn sandbox_reenables_writable_subpaths_under_unreadable_parents() {
                 value: FileSystemSpecialPath::Minimal,
             },
             access: FileSystemAccessMode::Read,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
@@ -860,24 +867,28 @@ async fn sandbox_reenables_writable_subpaths_under_unreadable_parents() {
                     .expect("absolute helper dir"),
             },
             access: FileSystemAccessMode::Read,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
                 path: AbsolutePathBuf::try_from(tmpdir.path()).expect("absolute tempdir"),
             },
             access: FileSystemAccessMode::Write,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
                 path: AbsolutePathBuf::try_from(blocked.as_path()).expect("absolute blocked dir"),
             },
             access: FileSystemAccessMode::Deny,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
                 path: AbsolutePathBuf::try_from(allowed.as_path()).expect("absolute allowed dir"),
             },
             access: FileSystemAccessMode::Write,
+            missing_path_behavior: None,
         },
     ]);
     let permission_profile = PermissionProfile::from_runtime_permissions(
@@ -924,12 +935,14 @@ async fn sandbox_blocks_root_read_carveouts_under_bwrap() {
                 value: FileSystemSpecialPath::Root,
             },
             access: FileSystemAccessMode::Read,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
             path: FileSystemPath::Path {
                 path: AbsolutePathBuf::try_from(blocked.as_path()).expect("absolute blocked dir"),
             },
             access: FileSystemAccessMode::Deny,
+            missing_path_behavior: None,
         },
     ]);
     let permission_profile = PermissionProfile::from_runtime_permissions(

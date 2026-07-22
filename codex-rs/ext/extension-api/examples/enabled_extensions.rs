@@ -73,8 +73,13 @@ async fn contribute_prompt(
     thread_store: &ExtensionData,
 ) -> Vec<codex_extension_api::PromptFragment> {
     let mut fragments = Vec::new();
+    let step_store = ExtensionData::new("step");
     for contributor in registry.context_contributors() {
-        fragments.extend(contributor.contribute(session_store, thread_store).await);
+        fragments.extend(
+            contributor
+                .contribute_thread_context(session_store, thread_store, &step_store)
+                .await,
+        );
     }
     fragments
 }
