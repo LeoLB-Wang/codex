@@ -43,6 +43,9 @@ AGENTS.override.md
 .jest/
 *.tsbuildinfo
 
+# codegraph
+.codegraph/
+
 # logs
 *.log
 npm-debug.log*
