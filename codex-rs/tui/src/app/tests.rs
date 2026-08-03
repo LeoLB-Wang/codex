@@ -2,6 +2,8 @@
 
 #[path = "tests/advanced_reasoning_tests.rs"]
 mod advanced_reasoning_tests;
+#[path = "tests/key_chords.rs"]
+mod key_chords;
 mod model_catalog;
 mod plugin_catalog;
 mod rate_limits;
@@ -3462,6 +3464,7 @@ async fn inactive_thread_started_notification_initializes_replay_session() -> Re
                 preview: "agent thread".to_string(),
                 ephemeral: false,
                 section: None,
+                section_entered_at: None,
                 history_mode: Default::default(),
                 model_provider: "agent-provider".to_string(),
                 created_at: 1,
@@ -3559,6 +3562,7 @@ async fn inactive_thread_started_notification_preserves_primary_model_when_path_
                 preview: "agent thread".to_string(),
                 ephemeral: false,
                 section: None,
+                section_entered_at: None,
                 history_mode: Default::default(),
                 model_provider: "agent-provider".to_string(),
                 created_at: 1,
@@ -3623,6 +3627,7 @@ async fn thread_read_session_state_does_not_reuse_primary_permission_profile() {
         preview: "read thread".to_string(),
         ephemeral: false,
         section: None,
+        section_entered_at: None,
         history_mode: Default::default(),
         model_provider: "read-provider".to_string(),
         created_at: 1,
@@ -4376,6 +4381,62 @@ async fn discard_side_thread_keeps_local_state_when_server_close_fails() -> Resu
 }
 
 #[tokio::test]
+async fn background_side_cleanup_removes_local_state_and_ignores_late_events() -> Result<()> {
+    let mut app = make_test_app().await;
+    let mut app_server =
+        crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref()).await?;
+    let parent_thread_id = ThreadId::new();
+    let side_thread_id = ThreadId::new();
+    app.active_thread_id = Some(parent_thread_id);
+    app.side_threads
+        .insert(side_thread_id, SideThreadState::new(parent_thread_id));
+    app.thread_event_channels
+        .insert(side_thread_id, ThreadEventChannel::new(/*capacity*/ 4));
+    app.agent_navigation.upsert(
+        side_thread_id,
+        Some("Side".to_string()),
+        Some("side".to_string()),
+        /*is_closed*/ false,
+    );
+    app.discard_side_thread_in_background(&mut app_server, side_thread_id)
+        .await;
+
+    assert_eq!(app.active_thread_id, Some(parent_thread_id));
+    assert!(!app.side_threads.contains_key(&side_thread_id));
+    assert!(!app.thread_event_channels.contains_key(&side_thread_id));
+    assert_eq!(app.agent_navigation.get(&side_thread_id), None);
+    assert!(app.abandoned_side_threads.contains(&side_thread_id));
+
+    app.enqueue_thread_notification(
+        side_thread_id,
+        agent_message_delta_notification(side_thread_id, "turn-1", "item-1", "late"),
+    )
+    .await?;
+    assert!(!app.thread_event_channels.contains_key(&side_thread_id));
+
+    app.handle_app_server_event(
+        &app_server,
+        codex_app_server_client::AppServerEvent::ServerRequest(Box::new(exec_approval_request(
+            side_thread_id,
+            "turn-1",
+            "item-1",
+            Some("approval-1"),
+        ))),
+    )
+    .await;
+    let resolution = app
+        .pending_app_server_requests
+        .take_resolution(Op::ExecApproval {
+            id: "approval-1".to_string(),
+            turn_id: None,
+            decision: codex_app_server_protocol::CommandExecutionApprovalDecision::Accept,
+        })
+        .expect("approval resolution should serialize");
+    assert_eq!(resolution, None);
+    Ok(())
+}
+
+#[tokio::test]
 async fn discard_closed_side_thread_removes_local_state_without_server_rpc() {
     let mut app = make_test_app().await;
     let parent_thread_id = ThreadId::new();
@@ -4681,6 +4742,7 @@ async fn make_test_app() -> App {
         initial_history_replay_buffer: None,
         enhanced_keys_supported: false,
         keymap: crate::keymap::RuntimeKeymap::defaults(),
+        key_chord_matcher: crate::keymap::KeyChordMatcher::default(),
         commit_anim_running: Arc::new(AtomicBool::new(false)),
         status_line_invalid_items_warned: Arc::new(AtomicBool::new(false)),
         terminal_title_invalid_items_warned: Arc::new(AtomicBool::new(false)),
@@ -4698,6 +4760,7 @@ async fn make_test_app() -> App {
         thread_event_listener_tasks: HashMap::new(),
         agent_navigation: AgentNavigationState::default(),
         side_threads: HashMap::new(),
+        abandoned_side_threads: HashSet::new(),
         active_thread_id: None,
         active_thread_rx: None,
         primary_thread_id: None,
@@ -4748,6 +4811,7 @@ async fn make_test_app_with_channels() -> (
             initial_history_replay_buffer: None,
             enhanced_keys_supported: false,
             keymap: crate::keymap::RuntimeKeymap::defaults(),
+            key_chord_matcher: crate::keymap::KeyChordMatcher::default(),
             commit_anim_running: Arc::new(AtomicBool::new(false)),
             status_line_invalid_items_warned: Arc::new(AtomicBool::new(false)),
             terminal_title_invalid_items_warned: Arc::new(AtomicBool::new(false)),
@@ -4765,6 +4829,7 @@ async fn make_test_app_with_channels() -> (
             thread_event_listener_tasks: HashMap::new(),
             agent_navigation: AgentNavigationState::default(),
             side_threads: HashMap::new(),
+            abandoned_side_threads: HashSet::new(),
             active_thread_id: None,
             active_thread_rx: None,
             primary_thread_id: None,
@@ -5296,7 +5361,8 @@ async fn required_stream_reflow_during_capped_initial_replay_survives_transcript
     assert!(app.initial_history_replay_buffer.is_none());
     assert!(app.transcript_reflow.has_pending_reflow());
 
-    app.maybe_run_resize_reflow(&mut tui)?;
+    let screen_size = tui.terminal.last_known_screen_size;
+    app.maybe_run_resize_reflow(&mut tui, screen_size)?;
     assert!(app.transcript_reflow.has_pending_reflow());
 
     app.close_transcript_overlay(&mut tui);
@@ -5359,6 +5425,27 @@ async fn height_shrink_schedules_resize_reflow() {
         &frame_requester,
     ));
     assert!(app.transcript_reflow.has_pending_reflow());
+}
+
+#[tokio::test]
+async fn resizing_empty_transcript_schedules_settled_size_recheck() {
+    let (mut app, _rx, _op_rx) = make_test_app_with_channels().await;
+    let mut tui = crate::tui::test_support::make_test_tui().expect("test tui");
+    let frame_requester = crate::tui::FrameRequester::test_dummy();
+    let initial_size = ratatui::layout::Size::new(/*width*/ 80, /*height*/ 24);
+    let resized_size = ratatui::layout::Size::new(/*width*/ 100, /*height*/ 24);
+
+    assert!(!app.handle_draw_size_change(initial_size, initial_size, &frame_requester));
+    tui.screen_size_for_event(&TuiEvent::Resize(resized_size))
+        .expect("resolve resize event");
+    tui.terminal.resize(resized_size).expect("apply event size");
+    assert!(app.handle_draw_size_change(resized_size, initial_size, &frame_requester));
+    tokio::time::sleep(crate::transcript_reflow::TRANSCRIPT_REFLOW_DEBOUNCE).await;
+    assert_eq!(
+        tui.screen_size_for_event(&TuiEvent::Draw)
+            .expect("resolve settled size"),
+        initial_size
+    );
 }
 
 fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn {
@@ -5485,6 +5572,7 @@ fn request_user_input_request(thread_id: ThreadId, turn_id: &str, item_id: &str)
             turn_id: turn_id.to_string(),
             item_id: item_id.to_string(),
             questions: Vec::new(),
+            is_blocking: true,
             auto_resolution_ms: None,
         },
     }
@@ -6231,9 +6319,12 @@ async fn in_app_resume_uses_configured_or_explicit_cwd() -> Result<()> {
         ));
         assert_eq!(app.chat_widget.thread_id(), Some(thread_id));
 
-        let control =
-            Box::pin(app.handle_event(&mut tui, &mut app_server, AppEvent::ForkCurrentSession))
-                .await?;
+        let control = Box::pin(app.handle_event(
+            &mut tui,
+            &mut app_server,
+            AppEvent::ForkCurrentSession { name: None },
+        ))
+        .await?;
 
         assert!(matches!(control, AppRunControl::Continue));
         assert!(!crate::session_resume::cwds_differ(
