@@ -156,7 +156,7 @@ impl ExecCommandHandler {
         // permissions config below. Consult the configured platform-sandbox requirement before
         // deciding whether parsing may continue without that base path.
         let sandbox = SandboxManager::new().select_initial(
-            &turn.permission_profile,
+            turn_environment.permission_profile(),
             SandboxablePreference::Auto,
             turn.windows_sandbox_level,
             turn.network.is_some(),
@@ -277,11 +277,11 @@ impl ExecCommandHandler {
             .requests_sandbox_override()
             && !effective_additional_permissions.permissions_preapproved
             && !matches!(
-                context.turn.approval_policy.value(),
+                context.turn.approval_policy(),
                 codex_protocol::protocol::AskForApproval::OnRequest
             )
         {
-            let approval_policy = context.turn.approval_policy.value();
+            let approval_policy = context.turn.approval_policy();
             manager.release_process_id(process_id).await;
             return Err(FunctionCallError::RespondToModel(format!(
                 "approval policy is {approval_policy:?}; reject command — you cannot ask for escalated permissions if the approval policy is {approval_policy:?}"
@@ -297,7 +297,7 @@ impl ExecCommandHandler {
             || {
                 normalize_and_validate_additional_permissions(
                     additional_permissions_allowed,
-                    context.turn.approval_policy.value(),
+                    context.turn.approval_policy(),
                     effective_additional_permissions.sandbox_permissions,
                     effective_additional_permissions.additional_permissions,
                     effective_additional_permissions.permissions_preapproved,
