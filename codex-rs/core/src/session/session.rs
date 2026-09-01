@@ -64,6 +64,7 @@ pub(crate) struct Session {
     pub(super) mcp_prewarm_shutdown: CancellationToken,
     pub(super) mcp_prewarm_task: std::sync::Mutex<Option<JoinHandle<()>>>,
     pub(crate) conversation: Arc<RealtimeConversationManager>,
+    pub(crate) realtime_history: Option<Mutex<crate::realtime_history::RealtimeHistoryState>>,
     pub(crate) active_turn: Mutex<Option<ActiveTurn>>,
     pub(crate) async_hook_results: async_channel::Receiver<HookCompletedEvent>,
     pub(crate) input_queue: InputQueue,
@@ -612,6 +613,12 @@ impl Session {
         CodexResponsesMetadata {
             window_number: Some(window_number),
             context_window_id: Some(context_window_id),
+            history_ingest_requested: turn_context
+                .config
+                .token_budget
+                .as_ref()
+                .is_some_and(|config| config.use_history_notes_extension)
+                .then_some(true),
             forked_from_ordinal_exclusive: self
                 .forked_from_ordinal_exclusive
                 .filter(|_| responses_metadata.forked_from_thread_id.is_some()),
@@ -764,11 +771,12 @@ impl Session {
             }
             InitialHistory::New | InitialHistory::Cleared | InitialHistory::Forked(_) => None,
         };
-        // Legacy subagent rollouts synthesize session_id from their own thread id.
+        // Legacy subagent rollouts synthesized session_id from their own thread ID.
         let resumed_session_id = resumed_session_id.filter(|session_id| {
             !session_configuration.session_source.is_non_root_agent()
                 || *session_id != SessionId::from(thread_id)
         });
+        // session_id is equal to the root thread's ID.
         let session_id = resumed_session_id.unwrap_or_else(|| {
             if session_configuration.session_source.is_non_root_agent() {
                 agent_control.session_id()
@@ -1351,6 +1359,7 @@ impl Session {
                     | RolloutItem::TurnContext(_)
                     | RolloutItem::WorldState(_)
                     | RolloutItem::RealtimeItem(_)
+                    | RolloutItem::TokenUsageRecord(_)
                     | RolloutItem::SecurityRiskScore(_) => {}
                 }
             }
@@ -1484,6 +1493,9 @@ impl Session {
                 mcp_prewarm_shutdown: CancellationToken::new(),
                 mcp_prewarm_task: std::sync::Mutex::new(None),
                 conversation: Arc::new(RealtimeConversationManager::new()),
+                realtime_history: (session_configuration.history_mode == ThreadHistoryMode::Paginated
+                    && services.live_thread.is_some())
+                .then(|| Mutex::new(Default::default())),
                 active_turn: Mutex::new(None),
                 async_hook_results,
                 input_queue: InputQueue::new(),
@@ -1573,7 +1585,7 @@ impl Session {
             )
             .await?;
             sess.start_mcp_prewarm_worker(mcp_prewarm_rx, mcp_auth_changes);
-            sess.schedule_startup_prewarm(session_configuration.base_instructions.clone())
+            sess.schedule_startup_prewarm(sess.get_prompt_base_instructions().await.text)
                 .await;
             let session_start_source = match &initial_history {
                 InitialHistory::Resumed(_) => codex_hooks::SessionStartSource::Resume,
