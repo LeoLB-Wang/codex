@@ -17,11 +17,13 @@ async fn reconnect_restores_history_permissions_and_keeps_old_input_paused() -> 
         let cwd = app.config.cwd.clone();
         app.config.model = Some("gpt-test".into());
         // Avoid platform-specific path widths in the mode-preservation snapshot.
-        app.config.tui_status_line = Some(vec!["model-with-reasoning".into()]);
+        app.local_settings.tui.status_line = Some(vec!["model-with-reasoning".into()]);
         app.config
             .permissions
             .set_permission_profile(PermissionProfile::read_only())?;
-        app.runtime_approval_policy_override = Some(AskForApproval::OnRequest);
+        app.runtime_approval_policy_override = Some(RuntimeApprovalPolicyOverride::Explicit(
+            AskForApproval::OnRequest,
+        ));
         app.runtime_permission_profile_override =
             Some(RuntimePermissionProfileOverride::from_config(&app.config));
         app.active_thread_id = Some(id);
@@ -180,12 +182,12 @@ async fn reconnect_restores_history_permissions_and_keeps_old_input_paused() -> 
             app.recap
                 .note_turn_finished(&TurnStatus::Completed, before_disconnect);
         }
-        app.recap
-            .schedule_check(id, app.app_event_tx.clone(), Instant::now());
+        app.schedule_recap_check(id, Instant::now());
         let old_sender = app.app_event_tx.clone();
         let connected = reconnect(
             app.app_server_target.clone(),
             app.config.clone(),
+            app.local_settings.clone(),
             Some(id),
             /*remote_cwd*/ None,
             transport,
@@ -314,6 +316,7 @@ async fn reconnect_exhaustion_and_unknown_initial_thread_stay_offline() -> Resul
             reconnect(
                 app.app_server_target.clone(),
                 app.config.clone(),
+                app.local_settings.clone(),
                 id,
                 /*remote_cwd*/ None,
                 crate::dynamic_tools_mcp::ThreadToolTransport::Dynamic,
@@ -365,6 +368,7 @@ async fn reconnect_allows_slow_hydration_but_bounds_a_stalled_server() -> Result
                 endpoint: endpoint.clone(),
             },
             app.config.clone(),
+            app.local_settings.clone(),
             Some(id),
             /*remote_cwd*/ None,
             crate::dynamic_tools_mcp::ThreadToolTransport::Dynamic,
