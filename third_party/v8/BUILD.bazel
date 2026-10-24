@@ -4,6 +4,19 @@ load("@rules_cc//cc:defs.bzl", "cc_library")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files([
+    "abseil.BUILD.bazel",
+    "abseil_repository.bzl",
+    "dependencies.bzl",
+    "dependency_config.bzl",
+    "dragonbox.BUILD.bazel",
+    "fast_float.BUILD.bazel",
+    "fp16.BUILD.bazel",
+    "highway.BUILD.bazel",
+    "icu.BUILD.bazel",
+    "simdutf.BUILD.bazel",
+])
+
 config_setting(
     name = "platform_aarch64_unknown_linux_musl",
     constraint_values = [

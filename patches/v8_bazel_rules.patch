@@ -1,6 +1,6 @@
 # What: adapt upstream V8 Bazel rules to this workspace's hermetic toolchains
 # and externally provided dependencies.
-# Scope: Bazel BUILD/defs/BUILD.icu integration only, including dependency
+# Scope: Bazel BUILD/defs integration only, including dependency
 # wiring, generated sources, and visibility; no standalone V8 source patching.
 
 diff --git a/orig/v8-15.2.124.1/bazel/defs.bzl b/mod/v8-15.2.124.1/bazel/defs.bzl
@@ -332,10 +332,28 @@ diff --git a/orig/v8-15.2.124.1/BUILD.bazel b/mod/v8-15.2.124.1/BUILD.bazel
  )
 
  v8_library(
-@@ -4660,16 +4697,9 @@
+@@ -4625,9 +4662,9 @@
+     copts = ["-Wno-implicit-fallthrough"],
+     deps = [
+         ":llvm_libc_headers",
+-        "@abseil-cpp//absl/synchronization",
+-        "@abseil-cpp//absl/time",
+-        "@abseil-cpp//absl/functional:overload",
++        "@v8_abseil//:synchronization",
++        "@v8_abseil//:time",
++        "@v8_abseil//:overload",
      ],
  )
 
+@@ -4655,21 +4692,14 @@
+     deps = [
+         ":torque_base_headers",
+         ":v8_libbase",
+-        "@abseil-cpp//absl/container:node_hash_map",
+-        "@abseil-cpp//absl/container:node_hash_set",
+-    ],
+-)
+-
 -cc_library(
 -  name = "simdutf",
 -  srcs = ["third_party/simdutf/simdutf.cpp"],
@@ -346,6 +364,11 @@ diff --git a/orig/v8-15.2.124.1/BUILD.bazel b/mod/v8-15.2.124.1/BUILD.bazel
 -        "@v8//bazel/config:is_windows": ["/std:c++20"],
 -        "//conditions:default": [],
 -    }),
++        "@v8_abseil//:node_hash_map",
++        "@v8_abseil//:node_hash_set",
++    ],
++)
++
 +alias(
 +    name = "simdutf",
 +    actual = "@simdutf//:simdutf",
@@ -361,7 +384,7 @@ diff --git a/orig/v8-15.2.124.1/BUILD.bazel b/mod/v8-15.2.124.1/BUILD.bazel
      ],
      icu_srcs = [
          ":generated_regexp_special_case",
-@@ -4701,7 +4731,7 @@
+@@ -4701,14 +4731,14 @@
      ],
      deps = [
          ":lib_dragonbox",
@@ -370,6 +393,17 @@ diff --git a/orig/v8-15.2.124.1/BUILD.bazel b/mod/v8-15.2.124.1/BUILD.bazel
          ":lib_fp16",
          ":simdutf",
          ":v8_libbase",
+-        "@abseil-cpp//absl/container:btree",
+-        "@abseil-cpp//absl/container:flat_hash_map",
+-        "@abseil-cpp//absl/container:flat_hash_set",
+-        "@abseil-cpp//absl/functional:overload",
++        "@v8_abseil//:btree",
++        "@v8_abseil//:flat_hash_map",
++        "@v8_abseil//:flat_hash_set",
++        "@v8_abseil//:overload",
+         "@highway//:hwy",
+     ],
+ )
 @@ -4757,6 +4787,7 @@
  alias(
      name = "core_lib_icu",
@@ -384,6 +418,17 @@ diff --git a/orig/v8-15.2.124.1/BUILD.bazel b/mod/v8-15.2.124.1/BUILD.bazel
          ":v8_libbase",
 -        "//external:icu",
 +        "@icu//:icu",
+     ],
+ )
+
+@@ -4830,8 +4861,8 @@
+     }),
+     deps = [
+         "v8_libbase",
+-        "@abseil-cpp//absl/container:node_hash_map",
+-        "@abseil-cpp//absl/container:node_hash_set",
++        "@v8_abseil//:node_hash_map",
++        "@v8_abseil//:node_hash_set",
      ],
  )
 
@@ -409,104 +454,3 @@ diff --git a/orig/v8-15.2.124.1/BUILD.bazel b/mod/v8-15.2.124.1/BUILD.bazel
      }),
      noicu_deps = [":v8_libshared_noicu"],
      noicu_srcs = [
-diff --git a/orig/v8-15.2.124.1/bazel/BUILD.icu b/mod/v8-15.2.124.1/bazel/BUILD.icu
---- a/orig/v8-15.2.124.1/bazel/BUILD.icu
-+++ b/mod/v8-15.2.124.1/bazel/BUILD.icu
-@@ -1,3 +1,24 @@
-+load("@rules_cc//cc:defs.bzl", "cc_library")
-+
-+CUSTOM_LIBCXX_COPTS = select({
-+    "@v8//:is_v8_use_rusty_v8_custom_libcxx": [
-+        "-nostdinc++",
-+        "-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS",
-+        "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE",
-+        "-D_LIBCPP_INSTRUMENTED_WITH_ASAN=0",
-+        "-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS",
-+    ],
-+    "//conditions:default": [],
-+})
-+
-+CUSTOM_LIBCXX_DEPS = select({
-+    "@v8//:is_v8_use_rusty_v8_custom_libcxx": [
-+        "@@//third_party/v8:rusty_v8_custom_libcxx_headers",
-+        "@@//third_party/v8:rusty_v8_custom_libcxx_runtime",
-+    ],
-+    "//conditions:default": [],
-+})
-+
- # Copyright 2021 the V8 project authors. All rights reserved.
- # Use of this source code is governed by a BSD-style license that can be
- # found in the LICENSE file.
-@@ -16,15 +37,12 @@
-     ]),
-     copts = select({
-         "@platforms//os:windows": [
--            "/wd4005",  # Macro redefinition.
--            "/wd4068",  # Unknown pragmas.
--            "/wd4267",  # Conversion from size_t on 64-bits.
--            "/utf-8",  # ICU source files are in UTF-8.
-+            "-Wno-deprecated-declarations",
-         ],
-         "//conditions:default": [
-             "-Wno-deprecated-declarations",
-         ],
--    }),
-+    }) + CUSTOM_LIBCXX_COPTS,
-     data = [":icudata"],
-     defines = [
-         "HAVE_DLOPEN=0",
-@@ -54,6 +72,7 @@
-         "U_ICUDATAENTRY_IN_COMMON",
-     ],
-     tags = ["requires-rtti"],
-+    deps = CUSTOM_LIBCXX_DEPS,
-     alwayslink = 1,
- )
-
-@@ -65,19 +84,16 @@
-     ]),
-     copts = select({
-         "@platforms//os:windows": [
--            "/wd4005",  # Macro redefinition.
--            "/wd4068",  # Unknown pragmas.
--            "/wd4267",  # Conversion from size_t on 64-bits.
--            "/utf-8",  # ICU source files are in UTF-8.
-+            "-Wno-deprecated-declarations",
-         ],
-         "//conditions:default": [
-             "-Wno-deprecated-declarations",
-         ],
--    }),
-+    }) + CUSTOM_LIBCXX_COPTS,
-     local_defines = [
-         "U_I18N_IMPLEMENTATION",
-     ],
--    deps = [":icuuc"],
-+    deps = [":icuuc"] + CUSTOM_LIBCXX_DEPS,
-     alwayslink = 1,
- )
-
-@@ -93,13 +109,10 @@
-     ]),
-     copts = select({
-         "@platforms//os:windows": [
--            "/wd4005",  # Macro redefinition.
--            "/wd4068",  # Unknown pragmas.
--            "/wd4267",  # Conversion from size_t on 64-bits.
--            "/utf-8",  # ICU source files are in UTF-8.
-+            "-Wno-deprecated-declarations",
-         ],
-         "//conditions:default": [],
--    }),
-+    }) + CUSTOM_LIBCXX_COPTS,
-     include_prefix = "third_party/icu",
-     local_defines = [
-         "U_COMMON_IMPLEMENTATION",
-@@ -108,6 +121,6 @@
-     deps = [
-         ":icui18n",
-         ":icuuc",
--    ],
-+    ] + CUSTOM_LIBCXX_DEPS,
-     alwayslink = 1,
- )
